@@ -134,7 +134,7 @@ async function openRouter(key: string, messages: Msg[], file?: { type: string; n
         { role: 'user', content: userContent },
       ],
       temperature: 0.2,
-      max_tokens: 6000,
+      max_tokens: 4500,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -406,9 +406,9 @@ const messages: Msg[] = [
     let raw = '';
     const providers: Array<[string, () => Promise<string>]> = [];
     const batched = (run: (m: Msg[], f?: { type: string; name: string; data: string }) => Promise<string>, fileArg?: { type: string; name: string; data: string }) =>
-      count > 20 ? () => generateInBatches(count, 10, 5, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index), fileArg)) : () => run(messages, fileArg);
+      count > 20 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index), fileArg)) : () => run(messages, fileArg);
     const batchedText = (run: (m: Msg[]) => Promise<string>) =>
-      count > 20 ? () => generateInBatches(count, 10, 5, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index))) : () => run(messages);
+      count > 20 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index))) : () => run(messages);
    const isPdf = hasFile && file.type === 'application/pdf';
 const isImage = hasFile && !isPdf;
 
