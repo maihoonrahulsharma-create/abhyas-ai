@@ -172,7 +172,7 @@ async function groq(key: string, messages: Msg[]) {
       model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
       messages,
       temperature: 0.2,
-      max_tokens: 6000,
+      max_tokens: 4500,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -213,7 +213,7 @@ async function huggingFace(key: string, messages: Msg[]) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'system', content: `${systemPrompt} Return JSON only. Do not wrap the JSON in markdown fences.` }, ...messages.filter(m => m.role === 'user')],
-          temperature: 0.2, max_tokens: 6000,
+          temperature: 0.2, max_tokens: 4500,
           response_format: { type: 'json_schema', json_schema: { name: 'BhejaFryQuestions', strict: true, schema: jsonSchema } },
         }),
       });
