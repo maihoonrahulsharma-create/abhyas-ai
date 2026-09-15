@@ -288,6 +288,7 @@ async function generateInBatches(
       else failures.push(`batch ${wave[i].index + 1}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
     });
     if (failures.length) throw new Error(failures.join(' | '));
+    if (cursor + concurrency < jobs.length) await new Promise(resolve => setTimeout(resolve, 10000));
   }
   const questions: any[] = [];
   for (const raw of results) {
