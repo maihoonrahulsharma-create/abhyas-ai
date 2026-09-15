@@ -202,8 +202,8 @@ async function groq(key: string, messages: Msg[]) {
 
 async function huggingFace(key: string, messages: Msg[]) {
   const models = Array.from(new Set([
-    process.env.HF_MODEL?.trim() || 'Qwen/Qwen3-32B:cerebras',
-    'openai/gpt-oss-120b:fireworks-ai',
+    process.env.HF_MODEL?.trim() || 'openai/gpt-oss-120b:cerebras',
+    'openai/gpt-oss-120b:cerebras',
   ].filter(Boolean)));
   const errors: string[] = [];
   for (const model of models) {
