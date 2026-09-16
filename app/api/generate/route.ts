@@ -135,14 +135,7 @@ async function openRouter(key: string, messages: Msg[], file?: { type: string; n
       ],
       temperature: 0.2,
       max_tokens: 4500,
-      response_format: {
-        type: 'json_object',
-        json_schema: {
-          name: 'BhejaFryQuestions',
-          strict: true,
-          schema: jsonSchema,
-        },
-      },
+      response_format: { type: 'json_object' },
     }),
   });
 
@@ -173,14 +166,7 @@ async function groq(key: string, messages: Msg[]) {
       messages,
       temperature: 0.2,
       max_tokens: 4500,
-      response_format: {
-        type: 'json_object',
-        json_schema: {
-          name: 'BhejaFryQuestions',
-          strict: true,
-          schema: jsonSchema,
-        },
-      },
+      response_format: { type: 'json_object' },
     }),
   });
 
@@ -578,4 +564,5 @@ function validateQuestions(raw: string, count: number, provider: string) {
   if (qs.some(q => new Set(q.options.map(x => x.toLowerCase())).size !== 4)) throw new Error(`${provider} returned duplicate options.`);
   return { questions: qs };
 }
+
 
