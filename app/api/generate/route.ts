@@ -24,7 +24,7 @@ For a multi-page PDF, use the full extracted PDF text as the source. Select ques
 
 If only a few questions are requested, choose the most important and representative concepts from across the ENTIRE source rather than taking all questions from the beginning.
 
-Create exactly the requested number of high-quality single-answer MCQs. Every question must have exactly four distinct plausible options and exactly one correct answer. Avoid duplicates and avoid asking multiple questions about the same small section when other important sections are available. Keep explanations concise. Follow the requested language and difficulty. Never invent source-specific facts.`;
+Create exactly the requested number of high-quality single-answer MCQs. Return exactly this JSON shape: {"questions":[{"question":"question text","options":["option 1","option 2","option 3","option 4"],"correctAnswer":0,"explanation":"brief explanation"}]}. correctAnswer must be an integer from 0 to 3. Do not return an array directly, extra fields, markdown, or any text outside the JSON object. Every question must have exactly four distinct plausible options and exactly one correct answer. Avoid duplicates and avoid asking multiple questions about the same small section when other important sections are available. Keep explanations concise. Follow the requested language and difficulty. Never invent source-specific facts.`;
 
 async function extractPdfText(file: File) {
   const buffer = await file.arrayBuffer();
@@ -564,5 +564,6 @@ function validateQuestions(raw: string, count: number, provider: string) {
   if (qs.some(q => new Set(q.options.map(x => x.toLowerCase())).size !== 4)) throw new Error(`${provider} returned duplicate options.`);
   return { questions: qs };
 }
+
 
 
