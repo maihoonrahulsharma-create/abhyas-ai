@@ -136,7 +136,7 @@ async function openRouter(key: string, messages: Msg[], file?: { type: string; n
       temperature: 0.2,
       max_tokens: 4500,
       response_format: {
-        type: 'json_schema',
+        type: 'json_object',
         json_schema: {
           name: 'BhejaFryQuestions',
           strict: true,
@@ -174,7 +174,7 @@ async function groq(key: string, messages: Msg[]) {
       temperature: 0.2,
       max_tokens: 4500,
       response_format: {
-        type: 'json_schema',
+        type: 'json_object',
         json_schema: {
           name: 'BhejaFryQuestions',
           strict: true,
@@ -214,7 +214,7 @@ async function huggingFace(key: string, messages: Msg[]) {
           model,
           messages: [{ role: 'system', content: `${systemPrompt} Return JSON only. Do not wrap the JSON in markdown fences.` }, ...messages.filter(m => m.role === 'user')],
           temperature: 0.2, max_tokens: 4500,
-          response_format: { type: 'json_schema', json_schema: { name: 'BhejaFryQuestions', strict: true, schema: jsonSchema } },
+          response_format: { type: 'json_object', json_schema: { name: 'BhejaFryQuestions', strict: true, schema: jsonSchema } },
         }),
       });
       const data = await res.json().catch(() => ({}));
