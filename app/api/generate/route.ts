@@ -571,7 +571,29 @@ const messages: Msg[] = [
     const { data: keyRows, error: keyError } = await supabase.from('user_ai_keys').select('provider,ciphertext,iv,auth_tag').eq('user_id', user.id);
     if (keyError) return NextResponse.json({ error: keyError.message }, { status: 500 });
     const keys: Record<string, string> = {};
-    for (const row of keyRows || []) { try { keys[row.provider] = decryptApiKey(row); } catch {} }
+
+for (const row of keyRows || []) {
+  try {
+    const decrypted = decryptApiKey(row);
+
+    if (decrypted.trim()) {
+      keys[row.provider] = decrypted;
+      console.log(`[AI KEY] ${row.provider}: decrypt OK`);
+    } else {
+      console.warn(`[AI KEY] ${row.provider}: decrypted value is empty`);
+    }
+  } catch (error) {
+    console.error(
+      `[AI KEY] ${row.provider}: decrypt FAILED`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+console.log(
+  '[AI KEY] Providers available to generation:',
+  Object.keys(keys)
+);
 
     const errors: string[] = [];
     const trace: Array<{ provider: string; status: 'success' | 'failed' | 'skipped'; durationMs?: number; error?: string }> = [];
