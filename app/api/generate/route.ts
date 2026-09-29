@@ -308,16 +308,59 @@ async function groq(key: string, messages: Msg[]) {
     body: JSON.stringify({
       model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
       messages,
-      temperature: 0.2,
+      temperature: 0.1,
       max_tokens: 4500,
-      response_format: { type: 'json_object' },
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'mcq_questions',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              questions: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    question: { type: 'string' },
+                    options: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      minItems: 4,
+                      maxItems: 4,
+                    },
+                    answer: { type: 'string' },
+                    explanation: { type: 'string' },
+                  },
+                  required: [
+                    'question',
+                    'options',
+                    'answer',
+                    'explanation',
+                  ],
+                },
+              },
+            },
+            required: ['questions'],
+          },
+        },
+      },
     }),
   });
 
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(`Groq ${res.status}: ${data?.error?.message || 'request failed'}`);
+    throw new Error(
+      `Groq ${res.status}: ${
+        data?.error?.message ||
+        data?.error?.failed_generation ||
+        'request failed'
+      }`
+    );
   }
 
   const content = String(data?.choices?.[0]?.message?.content || '');
@@ -328,8 +371,6 @@ async function groq(key: string, messages: Msg[]) {
 
   return content;
 }
-
-
 async function huggingFace(key: string, messages: Msg[]) {
   const models = Array.from(new Set([
     process.env.HF_MODEL?.trim() || 'openai/gpt-oss-120b:cerebras',
