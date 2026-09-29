@@ -76,27 +76,137 @@ function publicUrl(u: string) {
 
 type Msg = { role: 'system' | 'user'; content: any };
 
-async function gemini(key: string, messages: Msg[], file?: { type: string; name: string; data: string }) {
-  const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+async function gemini(
+  key: string,
+  messages: Msg[],
+  file?: { type: string; name: string; data: string }
+) {
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
+  const models = Array.from(
+    new Set([
+      primaryModel,
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+    ])
+  );
+
   const parts: any[] = [];
   const userContent = messages.find(m => m.role === 'user')?.content || [];
-  if (Array.isArray(userContent)) {
-    for (const item of userContent) if (item.type === 'text') parts.push({ text: item.text });
-  } else if (typeof userContent === 'string') parts.push({ text: userContent });
-  if (file) parts.push({ inlineData: { mimeType: file.type, data: file.data } });
-  const body = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ role: 'user', parts }],
-    generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
-  };
-  const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${data?.error?.message || 'request failed'}`);
-  return String(data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '');
-}
 
+  if (Array.isArray(userContent)) {
+    for (const item of userContent) {
+      if (item.type === 'text') {
+        parts.push({ text: item.text });
+      }
+    }
+  } else if (typeof userContent === 'string') {
+    parts.push({ text: userContent });
+  }
+
+  if (file) {
+    parts.push({
+      inlineData: {
+        mimeType: file.type,
+        data: file.data,
+      },
+    });
+  }
+
+  const body = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts,
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+    },
+  };
+
+  let lastError = 'Gemini request failed';
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': key,
+            },
+            body: JSON.stringify(body),
+          }
+        );
+
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          const content = String(
+            data?.candidates?.[0]?.content?.parts
+              ?.map((p: any) => p.text || '')
+              .join('') || ''
+          );
+
+          if (!content.trim()) {
+            throw new Error(`Gemini ${model} returned an empty response.`);
+          }
+
+          return content;
+        }
+
+        lastError = `Gemini ${res.status}: ${
+          data?.error?.message || 'request failed'
+        }`;
+
+        const retryable = [429, 500, 502, 503, 504].includes(res.status);
+
+        if (!retryable) {
+          throw new Error(lastError);
+        }
+
+        if (attempt < 3) {
+          const delayMs = attempt === 1 ? 3000 : 7000;
+
+          console.warn(
+            `Gemini ${model} temporary error (${res.status}). Retry ${attempt}/3 after ${delayMs}ms...`
+          );
+
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          console.warn(
+            `Gemini ${model} failed after 3 attempts. Trying next model...`
+          );
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+
+        if (attempt === 3) {
+          console.warn(
+            `Gemini ${model} failed after 3 attempts. Trying next model...`
+          );
+        } else {
+          const delayMs = attempt === 1 ? 3000 : 7000;
+
+          console.warn(
+            `Gemini ${model} error. Retry ${attempt}/3 after ${delayMs}ms...`
+          );
+
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+  }
+
+  throw new Error(lastError);
+}
 async function openRouter(key: string, messages: Msg[], file?: { type: string; name: string; data: string }) {
   const userContent: any[] = [{ type: 'text', text: String(messages[1]?.content?.[0]?.text || '') }];
 
@@ -393,9 +503,9 @@ const messages: Msg[] = [
     let raw = '';
     const providers: Array<[string, () => Promise<string>]> = [];
     const batched = (run: (m: Msg[], f?: { type: string; name: string; data: string }) => Promise<string>, fileArg?: { type: string; name: string; data: string }) =>
-      count > 20 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index), fileArg)) : () => run(messages, fileArg);
+      count > 5 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index), fileArg)) : () => run(messages, fileArg);
     const batchedText = (run: (m: Msg[]) => Promise<string>) =>
-      count > 20 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index))) : () => run(messages);
+      count > 5 ? () => generateInBatches(count, 5, 1, (batchCount, index) => run(withBatchCount(messages, count, batchCount, index))) : () => run(messages);
    const isPdf = hasFile && file.type === 'application/pdf';
 const isImage = hasFile && !isPdf;
 
@@ -508,6 +618,7 @@ function validateQuestions(raw: string, count: number, provider: string) {
   if (qs.some(q => new Set(q.options.map(x => x.toLowerCase())).size !== 4)) throw new Error(`${provider} returned duplicate options.`);
   return { questions: qs };
 }
+
 
 
 
