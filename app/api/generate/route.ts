@@ -166,10 +166,41 @@ async function gemini(
           data?.error?.message || 'request failed'
         }`;
 
-        const retryable = [429, 500, 502, 503, 504].includes(res.status);
+        /*
+         * Authentication / authorization errors mean the current
+         * Gemini key/model path cannot be used.
+         * Do NOT waste time retrying the same request.
+         */
+        if (res.status === 401 || res.status === 403) {
+          console.warn(
+            `Gemini ${model} authentication/permission error (${res.status}). Moving to next model/provider...`
+          );
+          break;
+        }
+
+        /*
+         * Bad request / invalid request should also move on.
+         * Retrying the exact same request will not fix it.
+         */
+        if (res.status === 400) {
+          console.warn(
+            `Gemini ${model} rejected the request (400). Moving to next model/provider...`
+          );
+          break;
+        }
+
+        /*
+         * Temporary provider errors can be retried briefly.
+         */
+        const retryable = [408, 409, 429, 500, 502, 503, 504].includes(
+          res.status
+        );
 
         if (!retryable) {
-          throw new Error(lastError);
+          console.warn(
+            `Gemini ${model} non-retryable error (${res.status}). Moving to next model/provider...`
+          );
+          break;
         }
 
         if (attempt < 3) {
@@ -188,11 +219,11 @@ async function gemini(
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
 
-        if (attempt === 3) {
-          console.warn(
-            `Gemini ${model} failed after 3 attempts. Trying next model...`
-          );
-        } else {
+        /*
+         * Network/timeout errors are temporary.
+         * Retry twice, then move to the next model.
+         */
+        if (attempt < 3) {
           const delayMs = attempt === 1 ? 3000 : 7000;
 
           console.warn(
@@ -200,14 +231,17 @@ async function gemini(
           );
 
           await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          console.warn(
+            `Gemini ${model} failed after 3 attempts. Trying next model...`
+          );
         }
       }
     }
   }
 
   throw new Error(lastError);
-}
-async function openRouter(key: string, messages: Msg[], file?: { type: string; name: string; data: string }) {
+}async function openRouter(key: string, messages: Msg[], file?: { type: string; name: string; data: string }) {
   const userContent: any[] = [{ type: 'text', text: String(messages[1]?.content?.[0]?.text || '') }];
 
   if (file) {
@@ -520,12 +554,42 @@ const skipped: Array<{
 // sending the actual PDF file to providers that charge for file processing.
 
 if (isPdf) {
-  if (keys.gemini) providers.push(['Gemini', batchedText(m => gemini(keys.gemini, m))]);
-  if (keys.groq) providers.push(['Groq', batchedText(m => groq(keys.groq, m))]);
-  if (keys.openrouter) providers.push(['OpenRouter', batchedText(m => openRouter(keys.openrouter, m))]);
-  skipped.push({ provider: 'Hugging Face', status: 'skipped', error: 'Hugging Face disabled for stability.' });
-  skipped.push({ provider: 'Ollama Local', status: 'skipped', error: 'Ollama Local is not enabled for uploaded PDF processing.' });
+  // PDF is already converted to full text by unpdf,
+  // so all text-capable providers can process it.
 
+  if (keys.gemini) {
+    providers.push([
+      'Gemini',
+      batchedText(m => gemini(keys.gemini, m)),
+    ]);
+  }
+
+  if (keys.groq) {
+    providers.push([
+      'Groq',
+      batchedText(m => groq(keys.groq, m)),
+    ]);
+  }
+
+  if (keys.openrouter) {
+    providers.push([
+      'OpenRouter',
+      batchedText(m => openRouter(keys.openrouter, m)),
+    ]);
+  }
+
+  if (keys.huggingface) {
+    providers.push([
+      'Hugging Face',
+      batchedText(m => huggingFace(keys.huggingface, m)),
+    ]);
+  }
+
+  skipped.push({
+    provider: 'Ollama Local',
+    status: 'skipped',
+    error: 'Ollama Local is not enabled for uploaded PDF processing.',
+  });
 } else if (isImage) {
   // Images still require a multimodal provider.
   if (keys.gemini) {
