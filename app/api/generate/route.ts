@@ -688,13 +688,40 @@ if (isPdf) {
     error: 'Ollama Local is not enabled for uploaded image processing.',
   });
 
-} else {
-  // Normal topic/link text generation.
-  if (keys.gemini) providers.push(['Gemini', batchedText(m => gemini(keys.gemini, m))]);
-if (keys.openrouter) providers.push(['OpenRouter', batchedText(m => openRouter(keys.openrouter, m))]);
-if (keys.groq) providers.push(['Groq', batchedText(m => groq(keys.groq, m))]);
-if (keys.huggingface) skipped.push({ provider: 'Hugging Face', status: 'skipped', error: 'Hugging Face disabled for stability.' });
-providers.push([
+
+  } else {
+  // Normal topic/link/PDF text generation.
+  // Fallback order: Gemini → Groq → OpenRouter → Hugging Face → Ollama
+
+  if (keys.gemini) {
+    providers.push([
+      'Gemini',
+      batchedText(m => gemini(keys.gemini!, m)),
+    ]);
+  }
+
+  if (keys.groq) {
+    providers.push([
+      'Groq',
+      batchedText(m => groq(keys.groq!, m)),
+    ]);
+  }
+
+  if (keys.openrouter) {
+    providers.push([
+      'OpenRouter',
+      batchedText(m => openRouter(keys.openrouter!, m)),
+    ]);
+  }
+
+  if (keys.huggingface) {
+    providers.push([
+      'Hugging Face',
+      batchedText(m => huggingFace(keys.huggingface!, m)),
+    ]);
+  }
+
+  providers.push([
     'Ollama Local',
     () => ollama(messages, count),
   ]);
