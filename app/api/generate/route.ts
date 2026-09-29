@@ -410,43 +410,11 @@ const skipped: Array<{
 // sending the actual PDF file to providers that charge for file processing.
 
 if (isPdf) {
-  // Prefer Groq/Hugging Face first for extracted PDF text.
-  // This avoids unnecessary Gemini quota usage and OpenRouter file charges.
-  if (keys.groq) {
-    providers.push([
-      'Groq',
-      batchedText(m => groq(keys.groq, m)),
-    ]);
-  }
-
-  if (keys.huggingface) {
-    providers.push([
-      'Hugging Face',
-      batchedText(m => huggingFace(keys.huggingface, m)),
-    ]);
-  }
-
-  // Gemini/OpenRouter are text-only fallback here.
-  // The PDF itself is NOT attached to these requests.
-  if (keys.gemini) {
-    providers.push([
-      'Gemini',
-      batchedText(m => gemini(keys.gemini, m)),
-    ]);
-  }
-
-  if (keys.openrouter) {
-    providers.push([
-      'OpenRouter',
-      batchedText(m => openRouter(keys.openrouter, m)),
-    ]);
-  }
-
-  skipped.push({
-    provider: 'Ollama Local',
-    status: 'skipped',
-    error: 'Ollama Local is not enabled for uploaded PDF processing.',
-  });
+  if (keys.gemini) providers.push(['Gemini', batchedText(m => gemini(keys.gemini, m))]);
+  if (keys.groq) providers.push(['Groq', batchedText(m => groq(keys.groq, m))]);
+  if (keys.openrouter) providers.push(['OpenRouter', batchedText(m => openRouter(keys.openrouter, m))]);
+  skipped.push({ provider: 'Hugging Face', status: 'skipped', error: 'Hugging Face disabled for stability.' });
+  skipped.push({ provider: 'Ollama Local', status: 'skipped', error: 'Ollama Local is not enabled for uploaded PDF processing.' });
 
 } else if (isImage) {
   // Images still require a multimodal provider.
@@ -494,35 +462,11 @@ if (isPdf) {
 
 } else {
   // Normal topic/link text generation.
-  if (keys.gemini) {
-    providers.push([
-      'Gemini',
-      batchedText(m => gemini(keys.gemini, m)),
-    ]);
-  }
-
-  if (keys.openrouter) {
-    providers.push([
-      'OpenRouter',
-      batchedText(m => openRouter(keys.openrouter, m)),
-    ]);
-  }
-
-  if (keys.groq) {
-    providers.push([
-      'Groq',
-      batchedText(m => groq(keys.groq, m)),
-    ]);
-  }
-
-  if (keys.huggingface) {
-    providers.push([
-      'Hugging Face',
-      batchedText(m => huggingFace(keys.huggingface, m)),
-    ]);
-  }
-
-  providers.push([
+  if (keys.gemini) providers.push(['Gemini', batchedText(m => gemini(keys.gemini, m))]);
+if (keys.openrouter) providers.push(['OpenRouter', batchedText(m => openRouter(keys.openrouter, m))]);
+if (keys.groq) providers.push(['Groq', batchedText(m => groq(keys.groq, m))]);
+if (keys.huggingface) skipped.push({ provider: 'Hugging Face', status: 'skipped', error: 'Hugging Face disabled for stability.' });
+providers.push([
     'Ollama Local',
     () => ollama(messages, count),
   ]);
