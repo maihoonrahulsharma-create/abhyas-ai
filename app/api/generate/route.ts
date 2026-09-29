@@ -307,46 +307,38 @@ async function groq(key: string, messages: Msg[]) {
     },
     body: JSON.stringify({
       model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-      messages,
+      messages: [
+        ...messages,
+        {
+          role: 'user',
+          content: `${String(messages[1]?.content?.[0]?.text || '')}
+
+IMPORTANT OUTPUT RULE:
+Return ONLY valid JSON.
+Do not use markdown.
+Do not add any text before or after the JSON.
+
+The JSON must have exactly this structure:
+{
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string", "string", "string", "string"],
+      "correctAnswer": 0,
+      "explanation": "string"
+    }
+  ]
+}
+
+correctAnswer must be an integer from 0 to 3.
+options must contain exactly 4 strings.
+Generate exactly the requested number of questions.`,
+        },
+      ],
       temperature: 0.1,
       max_tokens: 4500,
       response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'mcq_questions',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              questions: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    question: { type: 'string' },
-                    options: {
-                      type: 'array',
-                      items: { type: 'string' },
-                      minItems: 4,
-                      maxItems: 4,
-                    },
-                    answer: { type: 'string' },
-                    explanation: { type: 'string' },
-                  },
-                  required: [
-                    'question',
-                    'options',
-                    'answer',
-                    'explanation',
-                  ],
-                },
-              },
-            },
-            required: ['questions'],
-          },
-        },
+        type: 'json_object',
       },
     }),
   });
@@ -370,8 +362,7 @@ async function groq(key: string, messages: Msg[]) {
   }
 
   return content;
-}
-async function huggingFace(key: string, messages: Msg[]) {
+}async function huggingFace(key: string, messages: Msg[]) {
   const models = Array.from(new Set([
     process.env.HF_MODEL?.trim() || 'openai/gpt-oss-120b:cerebras',
     'openai/gpt-oss-120b:cerebras',
