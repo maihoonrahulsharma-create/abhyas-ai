@@ -438,27 +438,90 @@ async function generateInBatches(
   runBatch: (batchCount: number, index: number) => Promise<string>
 ) {
   if (count <= batchSize) return runBatch(count, 0);
+
   const jobs: Array<{ index: number; size: number }> = [];
-  for (let index = 0, offset = 0; offset < count; index++, offset += batchSize) jobs.push({ index, size: Math.min(batchSize, count - offset) });
+  for (let index = 0, offset = 0; offset < count; index++, offset += batchSize) {
+    jobs.push({ index, size: Math.min(batchSize, count - offset) });
+  }
+
   const results: string[] = new Array(jobs.length);
+
+  async function runBatchWithRetry(batchCount: number, index: number): Promise<string> {
+    let lastError = 'Batch generation failed';
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await runBatch(batchCount, index);
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[AI BATCH] Batch ${index + 1}/${jobs.length} failed ` +
+          `(attempt ${attempt}/3): ${lastError}`
+        );
+
+        if (attempt < 3) {
+          const delayMs = attempt === 1 ? 5000 : 15000;
+          console.warn(
+            `[AI BATCH] Retrying batch ${index + 1} after ${delayMs}ms...`
+          );
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+
+    throw new Error(`batch ${index + 1}: ${lastError}`);
+  }
+
   for (let cursor = 0; cursor < jobs.length; cursor += concurrency) {
     const wave = jobs.slice(cursor, cursor + concurrency);
-    const settled = await Promise.allSettled(wave.map(j => runBatch(j.size, j.index)));
+
+    const settled = await Promise.allSettled(
+      wave.map(job => runBatchWithRetry(job.size, job.index))
+    );
+
     const failures: string[] = [];
-    settled.forEach((r, i) => {
-      if (r.status === 'fulfilled') results[wave[i].index] = r.value;
-      else failures.push(`batch ${wave[i].index + 1}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+
+    settled.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        results[wave[i].index] = result.value;
+      } else {
+        failures.push(
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason)
+        );
+      }
     });
-    if (failures.length) throw new Error(failures.join(' | '));
-    if (cursor + concurrency < jobs.length) await new Promise(resolve => setTimeout(resolve, 10000));
+
+    if (failures.length) {
+      throw new Error(failures.join(' | '));
+    }
+
+    if (cursor + concurrency < jobs.length) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
   }
+
   const questions: any[] = [];
+
   for (const raw of results) {
     const parsed = schema.safeParse(extractJson(raw));
-    if (!parsed.success) throw new Error('AI returned invalid JSON or an invalid question structure in a batch.');
+
+    if (!parsed.success) {
+      throw new Error(
+        'AI returned invalid JSON or an invalid question structure in a batch.'
+      );
+    }
+
     questions.push(...parsed.data.questions);
   }
-  if (questions.length !== count) throw new Error(`Batch generation returned ${questions.length} questions instead of ${count}.`);
+
+  if (questions.length !== count) {
+    throw new Error(
+      `Batch generation returned ${questions.length} questions instead of ${count}.`
+    );
+  }
+
   return JSON.stringify({ questions });
 }
 
@@ -503,34 +566,69 @@ export async function POST(request: Request) {
 if (topic) sourceBits.push(`Topic: ${topic}`);
 
 if (link) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const res = await fetch(link, {
-      signal: controller.signal,
-      headers: { 'user-agent': 'QuizForgeAI/1.0' },
-    });
-
-    if (!res.ok) throw new Error(`Link returned ${res.status}`);
-
-    const text = await res.text();
-
-    const clean = text
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 120000);
-
-    sourceBits.push(`Web source content:\n${clean}`);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-let filePayload: { type: string; name: string; data: string } | undefined;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      try {
+        const res = await fetch(link, {
+          signal: controller.signal,
+          headers: {
+            'user-agent': 'Mozilla/5.0 QuizForgeAI/1.0',
+            'accept': 'text/html,application/xhtml+xml,application/pdf,text/plain,*/*',
+          },
+          redirect: 'follow',
+        });
+        if (!res.ok) {
+          throw new Error(`Link returned ${res.status}`);
+        }
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (
+          contentType.includes('application/pdf') ||
+          /\.pdf(?:[?#].*)?$/i.test(link)
+        ) {
+          const pdfBuffer = new Uint8Array(await res.arrayBuffer());
+          const { text: extractedPdf } = await extractText(pdfBuffer, {
+            mergePages: true,
+          });
+          const pdfText = Array.isArray(extractedPdf)
+            ? extractedPdf.join('\n')
+            : String(extractedPdf || '');
+          if (!pdfText.trim()) {
+            throw new Error('The linked PDF contains no readable text.');
+          }
+          sourceBits.push(
+            `FULL LINKED PDF SOURCE:\n${pdfText.slice(0, 180000)}`
+          );
+        } else {
+          const html = await res.text();
+          const clean = html
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+            .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&quot;/gi, '"')
+            .replace(/&#39;/gi, "'")
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (!clean) {
+            throw new Error('The linked page returned no readable content.');
+          }
+          sourceBits.push(
+            `WEB SOURCE CONTENT:\n${clean.slice(0, 180000)}`
+          );
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error('The link took longer than 30 seconds to respond.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    let filePayload: { type: string; name: string; data: string } | undefined;
 
 if (hasFile) {
   if (file.type === 'application/pdf') {
@@ -691,7 +789,7 @@ if (isPdf) {
 
   } else {
   // Normal topic/link/PDF text generation.
-  // Fallback order: Gemini → Groq → OpenRouter → Hugging Face → Ollama
+  // Fallback order: Gemini â†’ Groq â†’ OpenRouter â†’ Hugging Face â†’ Ollama
 
   if (keys.gemini) {
     providers.push([
@@ -763,6 +861,7 @@ function validateQuestions(raw: string, count: number, provider: string) {
   if (qs.some(q => new Set(q.options.map(x => x.toLowerCase())).size !== 4)) throw new Error(`${provider} returned duplicate options.`);
   return { questions: qs };
 }
+
 
 
 
